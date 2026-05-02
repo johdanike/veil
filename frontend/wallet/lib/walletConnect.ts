@@ -187,7 +187,7 @@ function buildWcError(id: number, code: number, message: string) {
   return { id, jsonrpc: '2.0', error: { code, message } }
 }
 
-export async function handleSignXdrRequest(
+async function signXdrPayload(
   _topic: string,
   _requestId: number,
   xdrString: string,
@@ -265,7 +265,7 @@ async function handleSignAndSubmitXdrRequest(
   xdrString: string,
 ): Promise<string> {
   const rpc = getRpcServer()
-  const signedXDR = await handleSignXdrRequest(topic, requestId, xdrString)
+  const signedXDR = await signXdrPayload(topic, requestId, xdrString)
   const network = getNetwork()
   const signedTx = TransactionBuilder.fromXDR(signedXDR, network.networkPassphrase)
   const sendResult = await rpc.sendTransaction(signedTx)
@@ -277,9 +277,16 @@ async function handleSignAndSubmitXdrRequest(
   return sendResult.hash
 }
 
-async function handleSessionRequest(event: any): Promise<void> {
+function dispatchWalletConnectRequest(event: any): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(
+    new CustomEvent('wc:request', { detail: event }),
+  )
+}
+
+export async function handleSignXdrRequest(event: any): Promise<void> {
   const client = _client
-  if (!client) return
+  if (!client) throw new Error('WalletConnect client not initialized.')
 
   const topic = event.topic
   const method = event.params?.request?.method
@@ -289,7 +296,7 @@ async function handleSessionRequest(event: any): Promise<void> {
     if (method === 'stellar_signXDR') {
       const requestParams = event.params?.request?.params
       const xdrString = getRequestXdr(requestParams)
-      const signedXDR = await handleSignXdrRequest(topic, requestId, xdrString)
+      const signedXDR = await signXdrPayload(topic, requestId, xdrString)
       await client.respondSessionRequest({
         topic,
         response: buildWcResult(requestId, { signedXDR }),
@@ -391,8 +398,8 @@ export async function getWalletConnectClient(): Promise<IWeb3Wallet> {
     notifySessions()
   })
 
-  _client.on('session_request', async (event: any) => {
-    await handleSessionRequest(event)
+  _client.on('session_request', (event: any) => {
+    dispatchWalletConnectRequest(event)
   })
 
   await syncSessionsFromClient(_client)
