@@ -1,8 +1,8 @@
 'use client'
 
+import { useState, useEffect, useCallback } from 'react'
 import { Core } from '@walletconnect/core'
-import { Web3Wallet } from '@walletconnect/web3wallet'
-import type { IWeb3Wallet } from '@walletconnect/web3wallet'
+import { Web3Wallet, type IWeb3Wallet } from '@walletconnect/web3wallet'
 import { getSdkError } from '@walletconnect/utils'
 import {
   Keypair,
@@ -451,4 +451,46 @@ export async function disconnectSession(topic: string): Promise<void> {
   _sessions = _sessions.filter((session) => session.topic !== topic)
   persistSessions(_sessions)
   notifySessions()
+}
+
+export async function disconnectAllSessions(): Promise<void> {
+  const client = _client
+  const sessions = [..._sessions]
+  await Promise.all(
+    sessions.map((s) =>
+      client
+        ? client
+            .disconnectSession({ topic: s.topic, reason: getSdkError('USER_DISCONNECTED') })
+            .catch(() => {})
+        : Promise.resolve(),
+    ),
+  )
+  _sessions = []
+  persistSessions([])
+  notifySessions()
+}
+
+// ── React hook ────────────────────────────────────────────────────────────────
+
+export function useWalletConnect() {
+  const [sessions, setSessions] = useState<WalletConnectSession[]>([])
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  useEffect(() => {
+    const unsubscribe = subscribeWalletConnectSessions((s) => {
+      setSessions(s)
+      setIsLoaded(true)
+    })
+    return unsubscribe
+  }, [])
+
+  const disconnect = useCallback((topic: string) => {
+    disconnectSession(topic).catch(console.error)
+  }, [])
+
+  const disconnectAll = useCallback(() => {
+    disconnectAllSessions().catch(console.error)
+  }, [])
+
+  return { sessions, disconnect, disconnectAll, isLoaded }
 }
