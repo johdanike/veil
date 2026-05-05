@@ -29,24 +29,33 @@ export interface WalletAsset {
   balance: string
 }
 
+// ── Module-level cache ────────────────────────────────────────────────────────
+// Survives component unmount/remount within the SPA so navigating away and
+// back doesn't flash the skeleton state. Cleared on hard refresh (intentional).
+// Refetch still happens in the background to keep data fresh.
+let cachedAssets:       WalletAsset[]                 | null = null
+let cachedTransactions: TxRecord[]                    | null = null
+let cachedContractXlm:  number                        | null = null
+let cachedPrices:       Record<string, number | null>        = {}
+
 // ── Dashboard page ────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const router = useRouter()
   useInactivityLock()
 
   const [walletAddress, setWalletAddress] = useState<string | null>(null)
-  const [assets, setAssets]               = useState<WalletAsset[]>([])
-  const [transactions, setTransactions]   = useState<TxRecord[]>([])
+  const [assets, setAssets]               = useState<WalletAsset[]>(() => cachedAssets ?? [])
+  const [transactions, setTransactions]   = useState<TxRecord[]>(() => cachedTransactions ?? [])
   const [selectedTx, setSelectedTx]       = useState<TxRecord | null>(null)
   const [txFilter, setTxFilter]           = useState<'all' | 'transfers' | 'swaps'>('all')
-  const [loading, setLoading]             = useState(true)
-  const [prices, setPrices]               = useState<Record<string, number | null>>({})
+  const [loading, setLoading]             = useState(cachedAssets === null)
+  const [prices, setPrices]               = useState<Record<string, number | null>>(() => cachedPrices)
   const [isFunding, setIsFunding]         = useState(false)
   const [fundingError, setFundingError]   = useState<string | null>(null)
   const [copied, setCopied]               = useState(false)
   const [hasFeePayerKey, setHasFeePayerKey] = useState(true)
   const [agentBadge, setAgentBadge]         = useState(false)
-  const [contractXlm, setContractXlm]       = useState(0)
+  const [contractXlm, setContractXlm]       = useState(() => cachedContractXlm ?? 0)
   const [isSweeping, setIsSweeping]         = useState(false)
   const [sweepError, setSweepError]         = useState<string | null>(null)
   const [sweepDismissed, setSweepDismissed] = useState(false)
@@ -68,7 +77,9 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     if (!walletAddress) return   // keep loading=true until address is ready
-    setLoading(true)
+    // Only show skeleton if we have NO cached data — otherwise refetch silently
+    // in the background and update once the new data arrives.
+    if (cachedAssets === null) setLoading(true)
 
     const horizonServer = new Server(network.horizonUrl)
     const rpcServer     = new SorobanRpc.Server(network.rpcUrl)
@@ -99,6 +110,7 @@ export default function DashboardPage() {
       }
     } catch { /* contract has no balance entry yet */ }
 
+    cachedContractXlm = contractXlm
     setContractXlm(contractXlm)
 
     // ── 2. Fee-payer G... balance (holds the testnet faucet XLM) ────────────
@@ -257,10 +269,13 @@ export default function DashboardPage() {
 
     // ── 5. Combine and display ───────────────────────────────────────────────
     const totalXlm = (contractXlm + feePayerXlm).toFixed(7)
-    setAssets([
+    const finalAssets: WalletAsset[] = [
       { code: 'XLM', issuer: null, balance: totalXlm },
       ...otherAssets,
-    ])
+    ]
+    cachedAssets       = finalAssets
+    cachedTransactions = txRecords
+    setAssets(finalAssets)
     setTransactions(txRecords)
     setLoading(false)
   }, [walletAddress])
@@ -289,7 +304,10 @@ export default function DashboardPage() {
     if (assets.length === 0) return
     let cancelled = false
     fetchPrices(assets.map(a => ({ code: a.code, issuer: a.issuer }))).then(result => {
-      if (!cancelled) setPrices(result)
+      if (!cancelled) {
+        cachedPrices = result
+        setPrices(result)
+      }
     })
     return () => { cancelled = true }
   }, [assets])

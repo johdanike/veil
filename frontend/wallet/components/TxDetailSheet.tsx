@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { getNetwork } from '@/lib/network'
 
 export interface TxRecord {
   id: string
@@ -95,6 +96,7 @@ export function TxDetailSheet({ tx, onClose }: TxDetailSheetProps) {
               label="Tx Hash"
               value={`${tx.hash.slice(0, 12)}...${tx.hash.slice(-12)}`}
               mono
+              href={`https://stellar.expert/explorer/${getNetwork().name === 'mainnet' ? 'public' : 'testnet'}/tx/${tx.hash}`}
             />
           )}
         </div>
@@ -115,24 +117,36 @@ function DetailRow({
   label,
   value,
   mono,
+  href,
 }: {
   label: string
   value: string
   mono?: boolean
+  href?: string
 }) {
+  const valueStyle: React.CSSProperties = {
+    fontSize: '0.875rem',
+    fontFamily: mono ? 'Inconsolata, monospace' : 'Inter, sans-serif',
+    textAlign: 'right',
+    wordBreak: 'break-all',
+  }
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
       <span style={{ fontSize: '0.8125rem', color: 'rgba(246,247,248,0.4)', flexShrink: 0 }}>
         {label}
       </span>
-      <span style={{
-        fontSize: '0.875rem',
-        fontFamily: mono ? 'Inconsolata, monospace' : 'Inter, sans-serif',
-        textAlign: 'right',
-        wordBreak: 'break-all',
-      }}>
-        {value}
-      </span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ ...valueStyle, color: 'var(--gold)', textDecoration: 'none', borderBottom: '1px dotted rgba(253,218,36,0.4)' }}
+        >
+          {value} ↗
+        </a>
+      ) : (
+        <span style={valueStyle}>{value}</span>
+      )}
     </div>
   )
 }
