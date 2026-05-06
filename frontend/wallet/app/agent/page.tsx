@@ -705,7 +705,7 @@ export default function AgentPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask me anything…"
+            placeholder="Try /history or ask me anything..."
             disabled={isThinking}
             className="input-field"
             style={{ flex: 1 }}

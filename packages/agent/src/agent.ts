@@ -260,6 +260,59 @@ export async function runAgent(
   const horizonUrl = urls?.horizonUrl ?? process.env.HORIZON_URL ?? 'https://horizon-testnet.stellar.org'
   const claudeModel = model ?? process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-6'
 
+  // ── SLASH COMMAND INTERCEPTION ─────────────────────────────────────────────
+  const trimmedMessage = userMessage.trim();
+  if (trimmedMessage.startsWith('/history')) {
+    const parts = trimmedMessage.split(' ');
+    const parsedCount = parts.length > 1 ? parseInt(parts[1], 10) : 10;
+    const count = isNaN(parsedCount) ? 10 : parsedCount;
+    const targetAddress = feePayerAddress ?? walletAddress;
+
+    try {
+      const [wraithResult, horizonResult] = await Promise.allSettled([
+        fetchWithPayment(
+          `${wraithUrl}/transfers/address/${targetAddress}?direction=both&limit=${count}`,
+        ),
+        fetch(`${horizonUrl}/accounts/${targetAddress}/payments?limit=${count}&order=desc`)
+          .then((r) => r.json()),
+      ]);
+
+      const sorobanTransfers = wraithResult.status === 'fulfilled' ? wraithResult.value : [];
+      const classicPayments = horizonResult.status === 'fulfilled'
+        ? (horizonResult.value as any)?._embedded?.records ?? []
+        : [];
+
+      if ((!sorobanTransfers || sorobanTransfers.length === 0) && (!classicPayments || classicPayments.length === 0)) {
+        return { response: "You don't have any recent transactions." };
+      }
+
+      let responseText = `Here are your last ${count} transactions:\n\n`;
+      
+      if (sorobanTransfers && sorobanTransfers.length > 0) {
+        responseText += `**Soroban Transfers:**\n`;
+        sorobanTransfers.slice(0, count).forEach((tx: any) => {
+          responseText += `- **${tx.type || 'Transfer'}**: ${tx.amount || '0'} ${tx.asset || ''} (Hash: \`${tx.hash || tx.transaction_hash}\`)\n`;
+        });
+        responseText += `\n`;
+      }
+
+      if (classicPayments && classicPayments.length > 0) {
+        responseText += `**Classic Payments:**\n`;
+        classicPayments.slice(0, count).forEach((tx: any) => {
+          const amount = tx.amount || tx.starting_balance || "0";
+          const asset = tx.asset_type === 'native' ? 'XLM' : (tx.asset_code || 'Unknown');
+          responseText += `- **${tx.type}**: ${amount} ${asset} (Hash: \`${tx.transaction_hash}\`)\n`;
+        });
+      }
+
+      return { response: responseText.trim() };
+    } catch (error) {
+      console.error("History fetch failed:", error);
+      return { response: "I couldn't fetch your transaction history at the moment. The Wraith indexer might be temporarily unavailable." };
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
   async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
     switch (name) {
       case 'get_price': {
@@ -399,21 +452,21 @@ export interface VeilAgent {
  * import { createVeilAgent } from '@veil/agent'
  *
  * const agent = createVeilAgent({
- *   anthropicApiKey: 'sk-ant-...',
- *   agentKeypairSecret: 'S...',
- *   oracleUrl: 'https://oracle.example.com',
- *   wraithUrl: 'https://wraith.example.com',
+ * anthropicApiKey: 'sk-ant-...',
+ * agentKeypairSecret: 'S...',
+ * oracleUrl: '[https://oracle.example.com](https://oracle.example.com)',
+ * wraithUrl: '[https://wraith.example.com](https://wraith.example.com)',
  * })
  *
  * const result = await agent.chat('What is my balance?', {
- *   walletAddress: 'C...',
- *   feePayerAddress: 'G...',
- *   profile: { name: 'Alice', role: 'trader' },
+ * walletAddress: 'C...',
+ * feePayerAddress: 'G...',
+ * profile: { name: 'Alice', role: 'trader' },
  * })
  *
  * console.log(result.response)
  * if (result.pendingTxXdr) {
- *   // Present to user for passkey approval, then sign + submit
+ * // Present to user for passkey approval, then sign + submit
  * }
  * ```
  */
